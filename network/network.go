@@ -18,8 +18,6 @@ type Options struct {
 // Node is a wrapper around a libp2p host.
 type Node struct {
 	host host.Host
-	id   peer.ID
-
 }
 
 // NewNode creates a new network node.
@@ -33,13 +31,16 @@ func NewNode(ctx context.Context, opts Options) (*Node, error) {
 		return nil, fmt.Errorf("failed to create libp2p host: %w", err)
 	}
 
-	// Add a diagnostic print statement to immediately confirm the Peer ID.
 	fmt.Printf("✅ New node created with Peer ID: %s\n", host.ID())
 
 	return &Node{
 		host: host,
-		id:   host.ID(),
 	}, nil
+}
+
+// Host returns the underlying libp2p host. This is our new public getter method.
+func (n *Node) Host() host.Host {
+	return n.host
 }
 
 // Start begins the node's network services.
@@ -77,5 +78,4 @@ func (n *Node) Connect(ctx context.Context, peerAddr string) error {
 	fmt.Printf("Successfully connected to peer: %s\n", peerInfo.ID)
 	return nil
 }
-
 

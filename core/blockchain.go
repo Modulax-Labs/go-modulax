@@ -82,8 +82,6 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) (*Block, error) {
 	}
 
 	// Update the "latest block hash" pointer in the database.
-	// NOTE: In a real implementation, this would be part of a DB transaction
-	// to ensure atomicity.
 	if err := bc.store.Put([]byte(lastBlockHashKey), newBlock.Hash[:]); err != nil {
 		return nil, err
 	}
@@ -92,6 +90,36 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) (*Block, error) {
 	bc.latestBlockHash = newBlock.Hash
 
 	return newBlock, nil
+}
+
+// AddExistingBlock adds a block that has been received from the network.
+func (bc *Blockchain) AddExistingBlock(block *Block) error {
+	// Basic validation: ensure the block's parent is our latest block.
+	if block.Header.ParentHash != bc.latestBlockHash {
+		// In a real blockchain, we would request the missing blocks instead of erroring.
+		return fmt.Errorf("received block has invalid parent hash")
+	}
+
+	// Encode the block for storage.
+	blockBytes, err := block.Encode()
+	if err != nil {
+		return fmt.Errorf("could not encode received block: %w", err)
+	}
+
+	// Store the block in the database, keyed by its hash.
+	if err := bc.store.Put(block.Hash[:], blockBytes); err != nil {
+		return err
+	}
+
+	// Update the "latest block hash" pointer in the database.
+	if err := bc.store.Put([]byte(lastBlockHashKey), block.Hash[:]); err != nil {
+		return err
+	}
+
+	// Update the latest block hash in memory.
+	bc.latestBlockHash = block.Hash
+
+	return nil
 }
 
 // GetLatestBlock returns the most recent block on the chain from storage.
