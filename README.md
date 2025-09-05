@@ -8,7 +8,7 @@
 <strong>The future-proof ledger. EVM today. Quantum-resistant tomorrow.</strong>
 <br />
 <br />
-<a href="https://www.google.com/search?q=https://github.com/Modulax-Protocol/go-modulax/actions/workflows/go.yml"><img src="https://www.google.com/search?q=https://github.com/Modulax-Protocol/go-modulax/actions/workflows/go.yml/badge.svg" alt="Build Status"></a>
+<a href="https://www.google.com/search?q=https://github.com/Modulax-Protocol/go-modulax/actions"><img src="https://www.google.com/search?q=https://img.shields.io/github/actions/workflow/status/Modulax-Protocol/go-modulax/go.yml%3Fbranch%3Dmain" alt="Build Status"></a>
 <a href="https://www.google.com/search?q=https://goreportcard.com/report/github.com/Modulax-Protocol/go-modulax"><img src="https://www.google.com/search?q=https://goreportcard.com/badge/github.com/Modulax-Protocol/go-modulax" alt="Go Report Card"></a>
 <a href="https://www.google.com/search?q=https://github.com/Modulax-Protocol/go-modulax/blob/main/LICENSE"><img src="https://www.google.com/search?q=https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 <a href="https://www.google.com/search?q=https://discord.gg/modulax"><img src="https://www.google.com/search?q=https://img.shields.io/discord/YOUR_DISCORD_SERVER_ID%3Fcolor%3D7289DA%26label%3DDiscord%26logo%3Ddiscord%26logoColor%3Dwhite" alt="Discord"></a>
@@ -47,16 +47,22 @@ A C compiler (like GCC for LevelDB)
 
 Installation & Running
 Clone the repository:
+`
 
 git clone [https://github.com/Modulax-Protocol/go-modulax.git](https://github.com/Modulax-Protocol/go-modulax.git)
+`
 
 Navigate to the project directory:
+`
 
 cd go-modulax
+`
 
 Build the binary:
+`
 
 go build -o modulax ./cmd/modulax
+`
 
 Run your node:
 
