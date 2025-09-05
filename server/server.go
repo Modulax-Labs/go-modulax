@@ -3,76 +3,89 @@ package server
 import (
 	"context"
 	"fmt"
-	"time"
+	"net/http"
 
 	"github.com/Modulax-Protocol/go-modulax/core"
 	"github.com/Modulax-Protocol/go-modulax/network"
+	"github.com/Modulax-Protocol/go-modulax/storage"
+	"github.com/gorilla/mux"
 )
 
-// Server is the main component of the node.
+// Server holds the state of the node.
 type Server struct {
-	bc          *core.Blockchain
-	apiServer   *APIServer
-	p2pNode     *network.Node
-	connectAddr string
+	db      storage.Storer
+	bc      *core.Blockchain
+	txPool  *core.TxPool // Add the transaction pool
+	p2pNode *network.Node
+	pubsub  *network.PubSubService
+	apiPort string
 }
 
-// NewServer creates a new Server instance.
-func NewServer(bc *core.Blockchain, apiPort string, connectAddr string) (*Server, error) {
-	// Setup the P2P node.
-	p2pOpts := network.Options{
-		ListenAddress: "/ip4/0.0.0.0/tcp/4001", // Listen on TCP port 4001
-	}
-	// If we are connecting to another peer, listen on a different port.
-	if connectAddr != "" {
-		p2pOpts.ListenAddress = "/ip4/0.0.0.0/tcp/4002"
-	}
-
-	p2pNode, err := network.NewNode(context.Background(), p2pOpts)
+// NewServer creates a new server instance.
+func NewServer(db storage.Storer, bc *core.Blockchain, p2pNode *network.Node, apiPort string) (*Server, error) {
+	ctx := context.Background()
+	pubsub, err := network.NewPubSubService(ctx, p2pNode.Host())
 	if err != nil {
-		return nil, fmt.Errorf("failed to create p2p node: %w", err)
+		return nil, err
 	}
 
-	apiServer := NewAPIServer(apiPort, bc)
 	return &Server{
-		bc:          bc,
-		apiServer:   apiServer,
-		p2pNode:     p2pNode,
-		connectAddr: connectAddr,
+		db:      db,
+		bc:      bc,
+		txPool:  core.NewTxPool(), // Initialize the new transaction pool
+		p2pNode: p2pNode,
+		pubsub:  pubsub,
+		apiPort: apiPort,
 	}, nil
 }
 
-// Start begins the server, starting all its services.
-func (s *Server) Start() {
+// Start runs the server.
+func (s *Server) Start(bootstrapNode string) error {
 	fmt.Println("Starting Modulax node...")
-	s.p2pNode.Start() // Start the networking layer.
+	s.p2pNode.Start()
 
-	// If a connect address is provided, try to connect to it.
-	if s.connectAddr != "" {
-		go func() {
-			// Give the node a moment to start up before connecting.
-			time.Sleep(1 * time.Second)
-			if err := s.p2pNode.Connect(context.Background(), s.connectAddr); err != nil {
-				fmt.Printf("Failed to connect to bootstrap node: %v\n", err)
-			}
-		}()
-	}
-
-	latestBlock, err := s.bc.GetLatestBlock()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to get latest block: %v", err))
-	}
-
-	fmt.Printf("Current block height: %d\n", latestBlock.Header.Height)
-
-	// Start the API server in a new goroutine so it doesn't block.
-	go func() {
-		if err := s.apiServer.Run(); err != nil {
-			fmt.Printf("API Server failed to start: %v\n", err)
+	// If a bootstrap node is provided, connect to it.
+	if bootstrapNode != "" {
+		if err := s.p2pNode.Connect(context.Background(), bootstrapNode); err != nil {
+			fmt.Printf("Failed to connect to bootstrap node: %v\n", err)
 		}
-	}()
+	}
 
-	// The main loop will eventually handle P2P logic.
-	select {} // Block forever.
+	// Subscribe to block announcements from the network.
+	_, err := s.pubsub.Subscribe(s.handleNewBlock)
+	if err != nil {
+		return fmt.Errorf("failed to subscribe to block topic: %w", err)
+	}
+
+	// Start the JSON-RPC API server.
+	router := mux.NewRouter()
+	api := NewAPIServer(s.bc, s.pubsub, s.txPool) // Pass the txPool to the API server
+	router.HandleFunc("/rpc", api.handleRPC).Methods("POST")
+
+	latestBlock, _ := s.bc.GetLatestBlock()
+	fmt.Printf("Current block height: %d\n", latestBlock.Header.Height)
+	fmt.Printf("JSON-RPC server listening on %s\n", s.apiPort)
+
+	return http.ListenAndServe(s.apiPort, router)
+}
+
+// handleNewBlock is the callback function for when a new block is received from the network.
+func (s *Server) handleNewBlock(data []byte) {
+	fmt.Println("\n--- 📣 Received New Block Message from Network! ---")
+
+	block, err := core.DecodeBlock(data)
+	if err != nil {
+		fmt.Printf("[DEBUG] Error decoding block from network: %v\n", err)
+		return
+	}
+
+	err = s.bc.AddExistingBlock(block)
+	if err != nil {
+		fmt.Printf("[DEBUG] Error adding block from network to our chain: %v\n", err)
+		return
+	}
+
+	newLatestBlock, _ := s.bc.GetLatestBlock()
+	fmt.Printf("--- ✅ Successfully Synced Block! New Height: %d ---\n\n", newLatestBlock.Header.Height)
 }
 

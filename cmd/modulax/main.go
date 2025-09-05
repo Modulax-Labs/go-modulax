@@ -1,83 +1,91 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
 	"github.com/Modulax-Protocol/go-modulax/core"
+	"github.com/Modulax-Protocol/go-modulax/network"
 	"github.com/Modulax-Protocol/go-modulax/server"
 	"github.com/Modulax-Protocol/go-modulax/storage"
 	"github.com/spf13/cobra"
 )
 
-// rootCmd represents the base command when called without any subcommands
+var (
+	connectNode string
+	apiPort     string
+)
+
+func init() {
+	runCmd.Flags().StringVar(&connectNode, "connect", "", "Address of a peer to connect to")
+	runCmd.Flags().StringVar(&apiPort, "apiport", ":8080", "Port for the JSON-RPC API server")
+	rootCmd.AddCommand(runCmd)
+}
+
 var rootCmd = &cobra.Command{
 	Use:   "modulax",
-	Short: "A brief description of your application",
-	Long: `A longer description that spans multiple lines and likely contains
-examples and usage of using your application. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Modulax is a quantum-resistant blockchain node",
 }
 
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Starts the Modulax node",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Get the flag values.
-		connectAddr, _ := cmd.Flags().GetString("connect")
-		apiPort, _ := cmd.Flags().GetString("apiport")
-
-		// Define the path for the database.
+	Run: func(cmd *cobra.Command, args []string) {
 		dbPath := "./modulax_chain"
-		// If connecting to another node, use a different DB path to simulate a separate node.
-		if connectAddr != "" {
+		listenAddr := "/ip4/0.0.0.0/tcp/4001"
+
+		// Adjust paths and ports for the second node if connecting
+		// This also ensures the API port is different if not specified.
+		if connectNode != "" {
 			dbPath = "./modulax_chain_2"
+			listenAddr = "/ip4/0.0.0.0/tcp/4002"
+			if apiPort == ":8080" { // Only override if it's the default
+				apiPort = ":8081"
+			}
 		}
 
-		// Create a new persistent storage instance.
-		store, err := storage.NewLevelDBStore(dbPath)
+		// Initialize storage
+		db, err := storage.NewLevelDBStore(dbPath)
 		if err != nil {
-			return fmt.Errorf("failed to create leveldb store: %w", err)
+			fmt.Fprintf(os.Stderr, "Failed to create db store: %v\n", err)
+			os.Exit(1)
 		}
 
-		// Create a new blockchain with the persistent store.
-		bc, err := core.NewBlockchain(store)
+		// Initialize blockchain
+		bc, err := core.NewBlockchain(db)
 		if err != nil {
-			return fmt.Errorf("failed to create blockchain: %w", err)
+			fmt.Fprintf(os.Stderr, "Failed to create blockchain: %v\n", err)
+			os.Exit(1)
 		}
 
-		// Create and start the server.
-		srv, err := server.NewServer(bc, apiPort, connectAddr)
+		// Initialize P2P node
+		p2pOpts := network.Options{ListenAddress: listenAddr}
+		p2pNode, err := network.NewNode(context.Background(), p2pOpts)
 		if err != nil {
-			return fmt.Errorf("failed to create server: %w", err)
+			fmt.Fprintf(os.Stderr, "Failed to create P2P node: %v\n", err)
+			os.Exit(1)
 		}
 
-		srv.Start()
+		// Initialize server
+		srv, err := server.NewServer(db, bc, p2pNode, apiPort)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create server: %v\n", err)
+			os.Exit(1)
+		}
 
-		return nil
+		// Start the server
+		if err := srv.Start(connectNode); err != nil {
+			fmt.Fprintf(os.Stderr, "Server failed to start: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
-func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error executing root command: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func init() {
-	// Add flags to the "run" command.
-	runCmd.Flags().String("connect", "", "Address of a peer to connect to")
-	runCmd.Flags().String("apiport", ":8080", "Port for the JSON-RPC API server")
-	rootCmd.AddCommand(runCmd)
-}
-
-func main() {
-	Execute()
 }
 

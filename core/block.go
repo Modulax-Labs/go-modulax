@@ -4,81 +4,73 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/gob"
+	"fmt"
 	"time"
 )
 
-// BlockHeader represents the header of a block.
-type BlockHeader struct {
+// Header represents the header of a block.
+type Header struct {
 	ParentHash [32]byte
 	Height     uint32
 	Timestamp  int64
-	// In a real blockchain, this would be a Merkle Root.
-	TransactionsHash [32]byte
 }
 
-// Block represents a single block in the blockchain.
+// Block represents a block in the blockchain.
 type Block struct {
-	Header       *BlockHeader
+	Header       *Header
 	Transactions []*Transaction
-	// Hash of the block header.
-	Hash [32]byte
+	Hash         [32]byte
 }
 
 // NewBlock creates a new block.
-func NewBlock(parentHash [32]byte, height uint32, timestamp int64, transactions []*Transaction) *Block {
-	if timestamp == 0 {
-		timestamp = time.Now().UnixNano()
-	}
-
-	header := &BlockHeader{
+func NewBlock(parentHash [32]byte, height uint32, transactions []*Transaction) *Block {
+	header := &Header{
 		ParentHash: parentHash,
 		Height:     height,
-		Timestamp:  timestamp,
-		// For simplicity, we are not calculating a real Merkle Root yet.
-		TransactionsHash: [32]byte{},
+		Timestamp:  time.Now().UnixNano(),
 	}
-
 	block := &Block{
 		Header:       header,
 		Transactions: transactions,
 	}
-
-	// Calculate and set the block's hash.
-	hash := block.CalculateHash()
-	block.Hash = hash
-
+	block.Hash = block.CalculateHash()
 	return block
+}
+
+// AddTransaction adds a transaction to the block.
+func (b *Block) AddTransaction(tx *Transaction) {
+	b.Transactions = append(b.Transactions, tx)
 }
 
 // CalculateHash calculates the SHA256 hash of the block's header.
 func (b *Block) CalculateHash() [32]byte {
-	// We use gob to serialize the header into a byte slice for hashing.
-	// This is a deterministic way to represent the data.
 	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(b.Header); err != nil {
-		// In a real application, this should be handled more gracefully.
+	encoder := gob.NewEncoder(&buf)
+	// We only hash the header for the block's hash.
+	if err := encoder.Encode(b.Header); err != nil {
+		// This should not happen with our simple struct.
 		panic(err)
 	}
 	return sha256.Sum256(buf.Bytes())
 }
 
-// Encode serializes the block into a byte slice using gob encoding.
+// Encode serializes the block into a byte slice using gob.
 func (b *Block) Encode() ([]byte, error) {
 	var buf bytes.Buffer
-	enc := gob.NewEncoder(&buf)
-	if err := enc.Encode(b); err != nil {
-		return nil, err
+	encoder := gob.NewEncoder(&buf)
+	if err := encoder.Encode(b); err != nil {
+		return nil, fmt.Errorf("failed to encode block: %w", err)
 	}
 	return buf.Bytes(), nil
 }
 
-// DecodeBlock deserializes a byte slice back into a Block pointer.
+// DecodeBlock deserializes a byte slice into a Block.
 func DecodeBlock(data []byte) (*Block, error) {
 	var block Block
-	dec := gob.NewDecoder(bytes.NewReader(data))
-	if err := dec.Decode(&block); err != nil {
-		return nil, err
+	decoder := gob.NewDecoder(bytes.NewReader(data))
+	if err := decoder.Decode(&block); err != nil {
+		return nil, fmt.Errorf("failed to decode block: %w", err)
 	}
 	return &block, nil
 }
+

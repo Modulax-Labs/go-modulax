@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"time" // Import the time package
 
 	"github.com/Modulax-Protocol/go-modulax/storage"
 )
@@ -28,6 +29,9 @@ func NewBlockchain(store storage.Storer) (*Blockchain, error) {
 		// If the key is not found, it means the database is new.
 		// We need to create and store the genesis block.
 		genesis := createGenesisBlock()
+		// --- DIAGNOSTIC PRINT ---
+		fmt.Printf("[DEBUG] No existing blockchain found. Creating new Genesis Block with Hash: %x\n", genesis.Hash)
+
 		genesisBytes, err := genesis.Encode()
 		if err != nil {
 			return nil, err
@@ -47,6 +51,8 @@ func NewBlockchain(store storage.Storer) (*Blockchain, error) {
 	} else {
 		// If the key exists, we load the latest block hash from the database.
 		copy(bc.latestBlockHash[:], latestHashBytes)
+		// --- DIAGNOSTIC PRINT ---
+		fmt.Printf("[DEBUG] Loaded existing blockchain. Latest Block Hash: %x\n", bc.latestBlockHash)
 	}
 
 	return bc, nil
@@ -68,7 +74,7 @@ func (bc *Blockchain) AddBlock(transactions []*Transaction) (*Block, error) {
 	}
 
 	// Create the new block.
-	newBlock := NewBlock(prevBlockHash, prevBlock.Header.Height+1, 0, transactions)
+	newBlock := NewBlock(prevBlockHash, prevBlock.Header.Height+1, transactions)
 
 	// Encode the new block for storage.
 	newBlockBytes, err := newBlock.Encode()
@@ -137,23 +143,27 @@ func (bc *Blockchain) GetLatestBlock() (*Block, error) {
 	return DecodeBlock(blockBytes)
 }
 
-// createGenesisBlock creates the very first block in the chain.
+// createGenesisBlock creates the very first, deterministic block in the chain.
 func createGenesisBlock() *Block {
 	// The genesis block has no parent, so its parent hash is all zeros.
 	parentHash := [32]byte{}
 	// It contains a single, special transaction.
 	genesisTx := &Transaction{
-		From:      []byte("genesis"),
-		To:        []byte("genesis"),
-		Value:     1000000, // Initial supply
-		Timestamp: 0,
-		Nonce:     0,
+		Data: []byte("genesis: time to build the future-proof ledger"),
 	}
-	// Sign and hash the genesis transaction (using placeholder functions for now)
 	genesisTx.Sign()
 	hash, _ := genesisTx.CalculateHash()
 	genesisTx.Hash = hash
 
-	return NewBlock(parentHash, 0, 0, []*Transaction{genesisTx})
-}
+	// Use a fixed timestamp (0) to make the genesis block's hash deterministic.
+	genesisHeader := &Header{
+		ParentHash: parentHash,
+		Height:     0,
+		Timestamp:  time.Unix(0, 0).UnixNano(), // Fixed timestamp
+	}
+	genesisBlock := &Block{Header: genesisHeader}
+	genesisBlock.AddTransaction(genesisTx)
+	genesisBlock.Hash = genesisBlock.CalculateHash()
 
+	return genesisBlock
+}
