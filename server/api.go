@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,7 +16,7 @@ type RPCRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
 	ID      int           `json:"id"`
-	Params  []interface{} `json:"params"`
+	Params  []interface{} `json:"params,omitempty"`
 }
 
 // RPCResponse represents a JSON-RPC response.
@@ -61,62 +62,52 @@ func (s *APIServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	resp.ID = req.ID
 
 	switch req.Method {
-	case "getBlockHeight":
-		latestBlock, err := s.bc.GetLatestBlock()
-		if err != nil {
-			resp.Error = &RPCError{Code: -32001, Message: "Could not get latest block"}
-		} else {
-			resp.Result = latestBlock.Header.Height
+	case "getAccount":
+		if len(req.Params) < 1 {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: requires address"}
+			break
 		}
+		addrStr, _ := req.Params[0].(string)
+		addrBytes, err := hex.DecodeString(addrStr)
+		if err != nil || len(addrBytes) != 20 {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid address format"}
+			break
+		}
+		var address [20]byte
+		copy(address[:], addrBytes)
+
+		account := s.bc.State().GetAccount(address)
+		resp.Result = account
 
 	case "sendTransaction":
-		if len(req.Params) == 0 {
-			resp.Error = &RPCError{Code: -32602, Message: "Invalid params"}
+		if len(req.Params) < 1 {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: requires raw tx hex"}
 			break
 		}
-		// Assume the param is a simple string for the transaction data.
-		txData, ok := req.Params[0].(string)
-		if !ok {
-			resp.Error = &RPCError{Code: -32602, Message: "Invalid params: expected a string"}
+		txHex, _ := req.Params[0].(string)
+		txBytes, err := hex.DecodeString(txHex)
+		if err != nil {
+			resp.Error = &RPCError{Code: -32602, Message: "Invalid transaction hex"}
 			break
 		}
 
-		tx := &core.Transaction{Data: []byte(txData)}
-		tx.Sign()
-		hash, _ := tx.CalculateHash()
-		tx.Hash = hash
+		tx, err := core.DecodeTransaction(txBytes)
+		if err != nil {
+			resp.Error = &RPCError{Code: -32000, Message: "Failed to decode transaction"}
+			break
+		}
+
+		valid, err := tx.Verify()
+		if err != nil || !valid {
+			resp.Error = &RPCError{Code: -32000, Message: "Invalid transaction signature"}
+			break
+		}
 
 		if err := s.txPool.Add(tx); err != nil {
 			resp.Error = &RPCError{Code: -32004, Message: "Failed to add transaction to pool"}
 		} else {
+			s.pubsub.BroadcastTransaction(context.Background(), txBytes)
 			resp.Result = fmt.Sprintf("Transaction accepted: %x", tx.Hash)
-		}
-
-	case "addBlock":
-		// Get pending transactions from the pool.
-		pendingTxs := s.txPool.Pending()
-		if len(pendingTxs) == 0 {
-			resp.Error = &RPCError{Code: -32005, Message: "No pending transactions to add"}
-			break
-		}
-
-		// Add a new block containing the pending transactions.
-		newBlock, err := s.bc.AddBlock(pendingTxs)
-		if err != nil {
-			resp.Error = &RPCError{Code: -32002, Message: "Could not add block"}
-		} else {
-			// Clear the transaction pool after including the transactions in a block.
-			s.txPool.Clear()
-
-			blockBytes, err := newBlock.Encode()
-			if err != nil {
-				resp.Error = &RPCError{Code: -32003, Message: "Could not encode block for broadcast"}
-			} else {
-				if err := s.pubsub.BroadcastBlock(context.Background(), blockBytes); err != nil {
-					fmt.Printf("Error broadcasting block: %v\n", err)
-				}
-				resp.Result = fmt.Sprintf("%x", newBlock.Hash)
-			}
 		}
 
 	default:

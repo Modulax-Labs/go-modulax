@@ -2,10 +2,14 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 
+	"github.com/Modulax-Protocol/go-modulax/client"
 	"github.com/Modulax-Protocol/go-modulax/core"
+	"github.com/Modulax-Protocol/go-modulax/crypto"
 	"github.com/Modulax-Protocol/go-modulax/network"
 	"github.com/Modulax-Protocol/go-modulax/server"
 	"github.com/Modulax-Protocol/go-modulax/storage"
@@ -20,12 +24,62 @@ var (
 func init() {
 	runCmd.Flags().StringVar(&connectNode, "connect", "", "Address of a peer to connect to")
 	runCmd.Flags().StringVar(&apiPort, "apiport", ":8080", "Port for the JSON-RPC API server")
+
+	walletCmd.AddCommand(newWalletCmd)
+	walletCmd.AddCommand(balanceCmd)
+	walletCmd.AddCommand(sendCmd) // Add the new send command
+
 	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(walletCmd)
 }
 
 var rootCmd = &cobra.Command{
 	Use:   "modulax",
-	Short: "Modulax is a quantum-resistant blockchain node",
+	Short: "Modulax is a quantum-resistant blockchain node and wallet CLI",
+}
+
+var walletCmd = &cobra.Command{
+	Use:   "wallet",
+	Short: "Manage your Modulax wallet",
+}
+
+var newWalletCmd = &cobra.Command{
+	Use:   "new",
+	Short: "Creates a new wallet key pair",
+	Run: func(cmd *cobra.Command, args []string) {
+		wallet, err := crypto.NewWallet()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create wallet: %v\n", err)
+			os.Exit(1)
+		}
+
+		fileName, err := wallet.SaveToFile()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to save wallet: %v\n", err)
+			os.Exit(1)
+		}
+
+		address := wallet.Address()
+		fmt.Println("🎉 New Modulax Wallet Created!")
+		fmt.Printf("Address: %x\n", address)
+		fmt.Printf("Wallet saved to: %s\n", fileName)
+	},
+}
+
+var balanceCmd = &cobra.Command{
+	Use:   "balance [address]",
+	Short: "Gets the balance of a given address",
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		address := args[0]
+		client := client.New("http://localhost:8080/rpc")
+		balance, err := client.GetBalance(address)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Balance for %s: %d\n", address, balance)
+	},
 }
 
 var runCmd = &cobra.Command{
@@ -35,31 +89,26 @@ var runCmd = &cobra.Command{
 		dbPath := "./modulax_chain"
 		listenAddr := "/ip4/0.0.0.0/tcp/4001"
 
-		// Adjust paths and ports for the second node if connecting
-		// This also ensures the API port is different if not specified.
 		if connectNode != "" {
 			dbPath = "./modulax_chain_2"
 			listenAddr = "/ip4/0.0.0.0/tcp/4002"
-			if apiPort == ":8080" { // Only override if it's the default
+			if apiPort == ":8080" {
 				apiPort = ":8081"
 			}
 		}
 
-		// Initialize storage
 		db, err := storage.NewLevelDBStore(dbPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create db store: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Initialize blockchain
 		bc, err := core.NewBlockchain(db)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create blockchain: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Initialize P2P node
 		p2pOpts := network.Options{ListenAddress: listenAddr}
 		p2pNode, err := network.NewNode(context.Background(), p2pOpts)
 		if err != nil {
@@ -67,18 +116,80 @@ var runCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Initialize server
 		srv, err := server.NewServer(db, bc, p2pNode, apiPort)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create server: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Start the server
 		if err := srv.Start(connectNode); err != nil {
 			fmt.Fprintf(os.Stderr, "Server failed to start: %v\n", err)
 			os.Exit(1)
 		}
+	},
+}
+
+var sendCmd = &cobra.Command{
+	Use:   "send [from] [to] [amount]",
+	Short: "Send tokens from one address to another",
+	Args:  cobra.ExactArgs(3),
+	Run: func(cmd *cobra.Command, args []string) {
+		fromAddr := args[0]
+		toAddrStr := args[1]
+		amountStr := args[2]
+
+		amount, err := strconv.ParseUint(amountStr, 10, 64)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Invalid amount: %v\n", err)
+			os.Exit(1)
+		}
+
+		// 1. Load the sender's wallet from file.
+		senderWallet, err := crypto.LoadWallet(fromAddr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Could not load sender wallet: %v\n", err)
+			os.Exit(1)
+		}
+
+		// 2. Decode the recipient's address.
+		toAddrBytes, err := hex.DecodeString(toAddrStr)
+		if err != nil || len(toAddrBytes) != 20 {
+			fmt.Fprintf(os.Stderr, "Error: Invalid recipient address format.\n")
+			os.Exit(1)
+		}
+		var toAddr [20]byte
+		copy(toAddr[:], toAddrBytes)
+
+		// 3. Get the sender's current nonce from the node.
+		client := client.New("http://localhost:8080/rpc")
+		senderAccount, err := client.GetAccount(fromAddr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Could not get sender account details: %v\n", err)
+			os.Exit(1)
+		}
+
+		// 4. Construct the transaction.
+		tx := &core.Transaction{
+			To:        toAddr,
+			Value:     amount,
+			Nonce:     senderAccount.Nonce,
+			PublicKey: senderWallet.PublicKey(),
+		}
+
+		// 5. Sign the transaction.
+		txHash, _ := tx.CalculateHash()
+		signature, _ := senderWallet.Sign(txHash)
+		tx.Signature = signature
+		tx.Hash = txHash
+
+		// 6. Send the transaction to the node.
+		txHashStr, err := client.SendTransaction(tx)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error sending transaction: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("✅ Transaction sent successfully!\nHash: %s\n", txHashStr)
 	},
 }
 

@@ -1,165 +1,209 @@
 package core
 
 import (
+	"encoding/hex"
 	"fmt"
-	"time" // Import the time package
+	"time"
 
+	"github.com/Modulax-Protocol/go-modulax/crypto"
 	"github.com/Modulax-Protocol/go-modulax/storage"
 )
+
+// GENESIS_ADDRESS is a placeholder for a well-known address to receive initial funds.
+var GENESIS_ADDRESS = [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
 
 const (
 	// lastBlockHashKey will be the key for storing the hash of the latest block in the DB.
 	lastBlockHashKey = "l"
 )
 
-// Blockchain represents the chain of blocks, now backed by persistent storage.
+// Blockchain represents the chain of blocks, now backed by a state machine.
 type Blockchain struct {
 	store           storage.Storer
+	state           *State
 	latestBlockHash [32]byte
 }
 
 // NewBlockchain creates a new blockchain instance, loading from storage if it exists.
 func NewBlockchain(store storage.Storer) (*Blockchain, error) {
-	bc := &Blockchain{store: store}
-
-	// Check if a latest block hash is already stored.
-	latestHashBytes, err := store.Get([]byte(lastBlockHashKey))
-	// A "not found" error is expected for a new database.
+	state, err := NewState(store)
 	if err != nil {
-		// If the key is not found, it means the database is new.
-		// We need to create and store the genesis block.
+		return nil, fmt.Errorf("failed to create state: %w", err)
+	}
+
+	bc := &Blockchain{
+		store: store,
+		state: state,
+	}
+
+	latestHashBytes, err := store.Get([]byte(lastBlockHashKey))
+	if err != nil {
+		// Database is new, create and process the genesis block.
 		genesis := createGenesisBlock()
-		// --- DIAGNOSTIC PRINT ---
-		fmt.Printf("[DEBUG] No existing blockchain found. Creating new Genesis Block with Hash: %x\n", genesis.Hash)
+		if err := bc.processBlock(genesis); err != nil {
+			return nil, err
+		}
 
 		genesisBytes, err := genesis.Encode()
 		if err != nil {
 			return nil, err
 		}
-
-		// Store the genesis block by its hash.
 		if err := store.Put(genesis.Hash[:], genesisBytes); err != nil {
 			return nil, err
 		}
-
-		// Store the genesis block's hash as the "latest block hash" pointer.
 		if err := store.Put([]byte(lastBlockHashKey), genesis.Hash[:]); err != nil {
 			return nil, err
 		}
 
 		bc.latestBlockHash = genesis.Hash
 	} else {
-		// If the key exists, we load the latest block hash from the database.
 		copy(bc.latestBlockHash[:], latestHashBytes)
-		// --- DIAGNOSTIC PRINT ---
-		fmt.Printf("[DEBUG] Loaded existing blockchain. Latest Block Hash: %x\n", bc.latestBlockHash)
 	}
 
 	return bc, nil
 }
 
-// AddBlock adds a new block to the blockchain and persists it to storage.
+// AddBlock adds a new block to the blockchain, processing its transactions.
 func (bc *Blockchain) AddBlock(transactions []*Transaction) (*Block, error) {
-	// Get the latest block hash to use as the parent hash for the new block.
 	prevBlockHash := bc.latestBlockHash
-
-	// Retrieve the full previous block from the database to get its height.
-	prevBlockBytes, err := bc.store.Get(prevBlockHash[:])
+	prevBlock, err := bc.GetBlockByHash(prevBlockHash)
 	if err != nil {
-		return nil, fmt.Errorf("could not get previous block: %w", err)
-	}
-	prevBlock, err := DecodeBlock(prevBlockBytes)
-	if err != nil {
-		return nil, fmt.Errorf("could not decode previous block: %w", err)
+		return nil, err
 	}
 
-	// Create the new block.
 	newBlock := NewBlock(prevBlockHash, prevBlock.Header.Height+1, transactions)
 
-	// Encode the new block for storage.
-	newBlockBytes, err := newBlock.Encode()
-	if err != nil {
-		return nil, fmt.Errorf("could not encode new block: %w", err)
+	if err := bc.processBlock(newBlock); err != nil {
+		return nil, err
 	}
 
-	// Store the new block in the database, keyed by its hash.
+	newBlockBytes, err := newBlock.Encode()
+	if err != nil {
+		return nil, err
+	}
 	if err := bc.store.Put(newBlock.Hash[:], newBlockBytes); err != nil {
 		return nil, err
 	}
-
-	// Update the "latest block hash" pointer in the database.
 	if err := bc.store.Put([]byte(lastBlockHashKey), newBlock.Hash[:]); err != nil {
 		return nil, err
 	}
-
-	// Update the latest block hash in memory.
 	bc.latestBlockHash = newBlock.Hash
 
 	return newBlock, nil
 }
 
-// AddExistingBlock adds a block that has been received from the network.
+// AddExistingBlock adds a block from the network, processing its transactions.
 func (bc *Blockchain) AddExistingBlock(block *Block) error {
-	// Basic validation: ensure the block's parent is our latest block.
 	if block.Header.ParentHash != bc.latestBlockHash {
-		// In a real blockchain, we would request the missing blocks instead of erroring.
 		return fmt.Errorf("received block has invalid parent hash")
 	}
 
-	// Encode the block for storage.
-	blockBytes, err := block.Encode()
-	if err != nil {
-		return fmt.Errorf("could not encode received block: %w", err)
+	if err := bc.processBlock(block); err != nil {
+		return err
 	}
 
-	// Store the block in the database, keyed by its hash.
+	blockBytes, err := block.Encode()
+	if err != nil {
+		return err
+	}
 	if err := bc.store.Put(block.Hash[:], blockBytes); err != nil {
 		return err
 	}
-
-	// Update the "latest block hash" pointer in the database.
 	if err := bc.store.Put([]byte(lastBlockHashKey), block.Hash[:]); err != nil {
 		return err
 	}
-
-	// Update the latest block hash in memory.
 	bc.latestBlockHash = block.Hash
 
 	return nil
 }
 
+func (bc *Blockchain) State() *State {
+	return bc.state
+}
+
+
+
+
+// GetBlockByHash retrieves a block from storage by its hash.
+func (bc *Blockchain) GetBlockByHash(hash [32]byte) (*Block, error) {
+	blockBytes, err := bc.store.Get(hash[:])
+	if err != nil {
+		return nil, fmt.Errorf("could not get block by hash %s: %w", hex.EncodeToString(hash[:]), err)
+	}
+	return DecodeBlock(blockBytes)
+}
+
+// processBlock is the state transition function.
+func (bc *Blockchain) processBlock(block *Block) error {
+	for _, tx := range block.Transactions {
+		valid, err := tx.Verify()
+		if err != nil {
+			return fmt.Errorf("failed to verify tx %x: %w", tx.Hash, err)
+		}
+		if !valid {
+			return fmt.Errorf("invalid signature on tx %x", tx.Hash)
+		}
+
+		// Derive the sender's address from their public key.
+		senderAddr := crypto.AddressFromPublicKey(tx.PublicKey)
+
+		// Handle the special case for the genesis transaction.
+		if block.Header.Height == 0 {
+			bc.state.AddBalance(GENESIS_ADDRESS, 1_000_000)
+			continue // Skip the rest of the logic for the genesis tx
+		}
+
+		// For regular transactions, process the transfer.
+		senderAccount := bc.state.GetAccount(senderAddr)
+		if tx.Nonce != senderAccount.Nonce {
+			return fmt.Errorf("invalid nonce for tx %x. want %d, got %d", tx.Hash, senderAccount.Nonce, tx.Nonce)
+		}
+
+		if err := bc.state.Transfer(senderAddr, tx.To, tx.Value); err != nil {
+			return fmt.Errorf("failed to transfer for tx %x: %w", tx.Hash, err)
+		}
+
+		// Increment the sender's nonce to prevent replay attacks.
+		senderAccount.Nonce++
+	}
+
+	fmt.Printf("✅ Processed %d transactions in Block %d\n", len(block.Transactions), block.Header.Height)
+
+	return bc.state.Persist() // Save the updated state.
+}
+
 // GetLatestBlock returns the most recent block on the chain from storage.
 func (bc *Blockchain) GetLatestBlock() (*Block, error) {
-	latestHash := bc.latestBlockHash
-	if latestHash == [32]byte{} {
+	if bc.latestBlockHash == [32]byte{} {
 		return nil, fmt.Errorf("blockchain is empty")
 	}
-
-	blockBytes, err := bc.store.Get(latestHash[:])
-	if err != nil {
-		return nil, fmt.Errorf("could not get latest block from store: %w", err)
-	}
-
-	return DecodeBlock(blockBytes)
+	return bc.GetBlockByHash(bc.latestBlockHash)
 }
 
 // createGenesisBlock creates the very first, deterministic block in the chain.
 func createGenesisBlock() *Block {
-	// The genesis block has no parent, so its parent hash is all zeros.
-	parentHash := [32]byte{}
-	// It contains a single, special transaction.
+	// A placeholder transaction is still needed to create a valid block structure.
+	// The actual minting happens in processBlock.
 	genesisTx := &Transaction{
-		Data: []byte("genesis: time to build the future-proof ledger"),
+		To:    [20]byte{}, // No recipient
+		Value: 0,
+		Nonce: 0,
 	}
-	genesisTx.Sign()
-	hash, _ := genesisTx.CalculateHash()
-	genesisTx.Hash = hash
+	// Sign with a dummy key, as there's no real sender.
+	dummyWallet, _ := crypto.NewWallet()
+	genesisTx.PublicKey = dummyWallet.PublicKey()
 
-	// Use a fixed timestamp (0) to make the genesis block's hash deterministic.
+	// Correctly sign the transaction using the new method
+	txHash, _ := genesisTx.CalculateHash()
+	signature, _ := dummyWallet.Sign(txHash)
+	genesisTx.Signature = signature
+	genesisTx.Hash = txHash
+
+	parentHash := [32]byte{}
 	genesisHeader := &Header{
 		ParentHash: parentHash,
 		Height:     0,
-		Timestamp:  time.Unix(0, 0).UnixNano(), // Fixed timestamp
+		Timestamp:  time.Unix(0, 0).UnixNano(),
 	}
 	genesisBlock := &Block{Header: genesisHeader}
 	genesisBlock.AddTransaction(genesisTx)
@@ -167,3 +211,4 @@ func createGenesisBlock() *Block {
 
 	return genesisBlock
 }
+
