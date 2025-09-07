@@ -32,7 +32,6 @@ func init() {
 	walletCmd.AddCommand(newWalletCmd)
 	walletCmd.AddCommand(balanceCmd)
 	walletCmd.AddCommand(sendCmd)
-
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(walletCmd)
 }
@@ -51,71 +50,69 @@ var newWalletCmd = &cobra.Command{
 	Use:   "new",
 	Short: "Creates and saves a new wallet key pair",
 	Run: func(cmd *cobra.Command, args []string) {
-		wallet, err := crypto.NewWallet()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create wallet: %v\n", err)
-			os.Exit(1)
-		}
-		fileName, err := wallet.SaveToFile()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to save wallet: %v\n", err)
-			os.Exit(1)
-		}
-		address := wallet.Address()
+		wallet, _ := crypto.NewWallet()
+		fileName, _ := wallet.SaveToFile()
+		addressBytes := wallet.Address()
+		hexAddress := hex.EncodeToString(addressBytes[:])
+		displayAddress := crypto.EncodeToCipher(hexAddress)
+
 		fmt.Println("🎉 New Modulax Wallet Created!")
-		fmt.Printf("Address: %x\n", address)
-		fmt.Printf("Wallet saved to: %s\n", fileName)
+		fmt.Printf("Address: %s\n", displayAddress)
+		fmt.Printf("Wallet saved to (hex format): %s\n", fileName)
 	},
 }
 
 var balanceCmd = &cobra.Command{
 	Use:   "balance [address]",
-	Short: "Gets the balance of a given address",
+	Short: "Gets the balance of a given address in Modulax-Cipher format",
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		address := args[0]
+		addressStr := args[0]
+		hexAddress, err := crypto.DecodeFromCipher(addressStr)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Invalid Modulax address format: %v\n", err)
+			os.Exit(1)
+		}
+
 		client := client.New("http://localhost:8080/rpc")
-		account, err := client.GetAccount(address)
+		account, err := client.GetAccount(hexAddress)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Balance for %s: %d\n", address, account.Balance)
-		fmt.Printf("Nonce for   %s: %d\n", address, account.Nonce)
+
+		fmt.Printf("Balance for %s: %d\n", addressStr, account.Balance)
 	},
 }
 
 var sendCmd = &cobra.Command{
-	Use:   "send [from] [to] [amount]",
+	Use:   "send [from_hex] [to_cipher] [amount]",
 	Short: "Send tokens from one address to another",
 	Args:  cobra.ExactArgs(3),
 	Run: func(cmd *cobra.Command, args []string) {
-		fromAddr := args[0]
-		toAddrStr := args[1]
+		fromAddrHex := args[0] // 'from' address is always the hex filename
+		toAddrCipher := args[1]
 		amountStr := args[2]
 
-		amount, err := strconv.ParseUint(amountStr, 10, 64)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Invalid amount: %v\n", err)
-			os.Exit(1)
-		}
-
-		senderWallet, err := crypto.LoadWallet(fromAddr)
+		amount, _ := strconv.ParseUint(amountStr, 10, 64)
+		senderWallet, err := crypto.LoadWallet(fromAddrHex)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Could not load sender wallet: %v\n", err)
 			os.Exit(1)
 		}
 
-		toAddrBytes, err := hex.DecodeString(toAddrStr)
-		if err != nil || len(toAddrBytes) != 20 {
+		toHexAddress, err := crypto.DecodeFromCipher(toAddrCipher)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Invalid recipient address format.\n")
 			os.Exit(1)
 		}
+
+		toAddrBytes, _ := hex.DecodeString(toHexAddress)
 		var toAddr [20]byte
 		copy(toAddr[:], toAddrBytes)
 
 		client := client.New("http://localhost:8080/rpc")
-		senderAccount, err := client.GetAccount(fromAddr)
+		senderAccount, err := client.GetAccount(fromAddrHex)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Could not get sender account details: %v\n", err)
 			os.Exit(1)
@@ -139,7 +136,7 @@ var sendCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		fmt.Printf("✅ Transaction sent successfully!\nHash: %s\n", txHashStr)
+		fmt.Printf("✅ Transaction sent successfully!\nHash (hex): %s\n", txHashStr)
 	},
 }
 
@@ -150,7 +147,6 @@ var runCmd = &cobra.Command{
 		setupGenesisWallet()
 		dbPath := "./modulax_chain"
 		listenAddr := "/ip4/0.0.0.0/tcp/4001"
-
 		if connectNode != "" {
 			dbPath = "./modulax_chain_2"
 			listenAddr = "/ip4/0.0.0.0/tcp/4002"
@@ -158,44 +154,33 @@ var runCmd = &cobra.Command{
 				apiPort = ":8081"
 			}
 		}
-
 		db, err := storage.NewLevelDBStore(dbPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create db store: %v\n", err)
 			os.Exit(1)
 		}
-
-		// Correct Initialization Order:
-		// 1. Create the state from the database.
 		state, err := core.NewState(db)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create state: %v\n", err)
 			os.Exit(1)
 		}
-
-		// 2. Create the EVM (Executor) with the state.
 		executor := evm.NewEVM(state)
-
-		// 3. Create the Blockchain with the database and the executor.
 		bc, err := core.NewBlockchain(db, executor)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create blockchain: %v\n", err)
 			os.Exit(1)
 		}
-
 		p2pOpts := network.Options{ListenAddress: listenAddr}
 		p2pNode, err := network.NewNode(context.Background(), p2pOpts)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create P2P node: %v\n", err)
 			os.Exit(1)
 		}
-
 		srv, err := server.NewServer(db, bc, p2pNode, apiPort)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to create server: %v\n", err)
 			os.Exit(1)
 		}
-
 		if err := srv.Start(connectNode); err != nil {
 			fmt.Fprintf(os.Stderr, "Server failed to start: %v\n", err)
 			os.Exit(1)
@@ -216,6 +201,7 @@ func setupGenesisWallet() {
 
 	addrHex := fmt.Sprintf("%x", genesisWallet.Address())
 	fileName := fmt.Sprintf("./wallets/%s.wal", addrHex)
+
 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
 		savedFile, err := genesisWallet.SaveToFile()
 		if err != nil {
@@ -223,6 +209,9 @@ func setupGenesisWallet() {
 			os.Exit(1)
 		}
 		fmt.Printf("🔑 Genesis wallet file created at: %s\n", savedFile)
+
+		addrCipher := crypto.EncodeToCipher(addrHex)
+		fmt.Printf("   - Genesis Address: %s\n", addrCipher)
 	}
 }
 
