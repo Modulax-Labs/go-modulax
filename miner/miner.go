@@ -84,4 +84,3 @@ func (m *Miner) createNewBlock() {
 
 	fmt.Printf("✅ Successfully proposed and broadcasted new block. Hash: %x\n", newBlock.Hash)
 }
-

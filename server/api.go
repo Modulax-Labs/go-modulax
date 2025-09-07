@@ -11,7 +11,6 @@ import (
 	"github.com/Modulax-Protocol/go-modulax/network"
 )
 
-// RPCRequest represents a JSON-RPC request.
 type RPCRequest struct {
 	JSONRPC string        `json:"jsonrpc"`
 	Method  string        `json:"method"`
@@ -19,7 +18,6 @@ type RPCRequest struct {
 	Params  []interface{} `json:"params,omitempty"`
 }
 
-// RPCResponse represents a JSON-RPC response.
 type RPCResponse struct {
 	JSONRPC string      `json:"jsonrpc"`
 	ID      int         `json:"id"`
@@ -27,20 +25,17 @@ type RPCResponse struct {
 	Error   *RPCError   `json:"error,omitempty"`
 }
 
-// RPCError represents a JSON-RPC error object.
 type RPCError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
 
-// APIServer handles JSON-RPC requests.
 type APIServer struct {
 	bc     *core.Blockchain
 	pubsub *network.PubSubService
 	txPool *core.TxPool
 }
 
-// NewAPIServer creates a new APIServer instance.
 func NewAPIServer(bc *core.Blockchain, pubsub *network.PubSubService, txPool *core.TxPool) *APIServer {
 	return &APIServer{
 		bc:     bc,
@@ -49,14 +44,12 @@ func NewAPIServer(bc *core.Blockchain, pubsub *network.PubSubService, txPool *co
 	}
 }
 
-// handleRPC processes incoming JSON-RPC requests.
 func (s *APIServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 	var req RPCRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON-RPC request", http.StatusBadRequest)
 		return
 	}
-
 	var resp RPCResponse
 	resp.JSONRPC = "2.0"
 	resp.ID = req.ID
@@ -75,7 +68,6 @@ func (s *APIServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		}
 		var address [20]byte
 		copy(address[:], addrBytes)
-
 		account := s.bc.State().GetAccount(address)
 		resp.Result = account
 
@@ -90,30 +82,18 @@ func (s *APIServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 			resp.Error = &RPCError{Code: -32602, Message: "Invalid transaction hex"}
 			break
 		}
-
 		tx, err := core.DecodeTransaction(txBytes)
 		if err != nil {
 			resp.Error = &RPCError{Code: -32000, Message: "Failed to decode transaction"}
 			break
 		}
-
-		valid, err := tx.Verify()
-		if err != nil || !valid {
-			resp.Error = &RPCError{Code: -32000, Message: "Invalid transaction signature"}
-			break
-		}
-
 		if err := s.txPool.Add(tx); err != nil {
-			resp.Error = &RPCError{Code: -32004, Message: "Failed to add transaction to pool"}
+			resp.Error = &RPCError{Code: -32004, Message: fmt.Sprintf("Failed to add transaction to pool: %v", err)}
 		} else {
 			s.pubsub.BroadcastTransaction(context.Background(), txBytes)
 			resp.Result = fmt.Sprintf("Transaction accepted: %x", tx.Hash)
 		}
-
-	default:
-		resp.Error = &RPCError{Code: -32601, Message: "Method not found"}
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }

@@ -1,28 +1,45 @@
 package core
 
 import (
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"encoding/hex"
+	"fmt"
+	"math/big"
 	"os"
 	"testing"
 
 	"github.com/Modulax-Protocol/go-modulax/crypto"
 	"github.com/Modulax-Protocol/go-modulax/storage"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// MockExecutor is a test implementation of the Executor interface.
+// It allows us to test the Blockchain without a real EVM, breaking the import cycle.
+type MockExecutor struct{}
+
+func (e *MockExecutor) Execute(tx *Transaction) error {
+	// For this mock, we assume all transactions are valid.
+	// In more advanced tests, we could add logic here to simulate failures.
+	return nil
+}
 
 // newTestBlockchain creates a new blockchain with a temporary LevelDB store for testing.
 func newTestBlockchain(t *testing.T) *Blockchain {
-	// Create a temporary directory for the test database.
-	path := "./test_db"
-	// Clean up any previous test database.
+	path := fmt.Sprintf("./test_db_%s", t.Name())
 	os.RemoveAll(path)
 
 	store, err := storage.NewLevelDBStore(path)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	bc, err := NewBlockchain(store)
-	assert.NoError(t, err)
+	// Create a new MockExecutor for the test.
+	executor := &MockExecutor{}
 
-	// Add a cleanup function to remove the database after the test.
+	// Create the blockchain and pass in the mock executor.
+	bc, err := NewBlockchain(store, executor)
+	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		os.RemoveAll(path)
 	})
@@ -34,32 +51,41 @@ func newTestBlockchain(t *testing.T) *Blockchain {
 func TestNewBlockchain(t *testing.T) {
 	bc := newTestBlockchain(t)
 	assert.NotNil(t, bc.state)
-	assert.Equal(t, uint32(0), len(bc.latestBlockHash))
+	latestBlock, err := bc.GetLatestBlock()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(0), latestBlock.Header.Height)
 
-	// Check that the genesis address was correctly funded.
-	genesisBalance := bc.state.GetBalance(GENESIS_ADDRESS)
+	// We must derive the genesis address from the known private key to verify the balance.
+	pkBytes, _ := hex.DecodeString(GENESIS_PRIVATE_KEY)
+	privateKey := new(ecdsa.PrivateKey)
+	privateKey.D = new(big.Int).SetBytes(pkBytes)
+	privateKey.PublicKey.Curve = elliptic.P256()
+	privateKey.PublicKey.X, privateKey.PublicKey.Y = privateKey.PublicKey.Curve.ScalarBaseMult(pkBytes)
+	genesisWallet := crypto.WalletFromPrivateKey(privateKey)
+	genesisAddress := genesisWallet.Address()
+
+	genesisBalance := bc.state.GetAccount(genesisAddress).Balance
 	assert.Equal(t, uint64(1_000_000), genesisBalance)
 }
 
-// TestAddBlockWithTransfer tests adding a block with a valid value transfer transaction.
+// TestAddBlockWithTransfer tests adding a block.
+// NOTE: With a MockExecutor, we are not testing the state change here, only that
+// the block can be added to the chain without error. State change is tested
+// in the EVM's own unit tests.
 func TestAddBlockWithTransfer(t *testing.T) {
 	bc := newTestBlockchain(t)
 
-	// Create two wallets for the test.
 	senderWallet, _ := crypto.NewWallet()
 	receiverWallet, _ := crypto.NewWallet()
-	senderAddress := senderWallet.Address()
 	receiverAddress := receiverWallet.Address()
 
-	// Manually fund the sender's account directly in the state for this test.
-	bc.state.AddBalance(senderAddress, 100)
-	assert.Equal(t, uint64(100), bc.state.GetBalance(senderAddress))
+	println("Sender Balance:", bc.state.GetAccount(senderWallet.Address()).Balance)
+	println("Receiver Balance:", bc.state.GetAccount(receiverAddress).Balance)
 
-	// Create a transaction from the sender to the receiver.
 	tx := &Transaction{
 		To:        receiverAddress,
 		Value:     25,
-		Nonce:     0, // First transaction from this account
+		Nonce:     0,
 		PublicKey: senderWallet.PublicKey(),
 	}
 	txHash, _ := tx.CalculateHash()
@@ -67,19 +93,10 @@ func TestAddBlockWithTransfer(t *testing.T) {
 	tx.Signature = signature
 	tx.Hash = txHash
 
-	// Add a new block containing this transaction.
 	_, err := bc.AddBlock([]*Transaction{tx})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
-	// Check the final balances.
-	senderBalance := bc.state.GetBalance(senderAddress)
-	receiverBalance := bc.state.GetBalance(receiverAddress)
+	latestBlock, _ := bc.GetLatestBlock()
+	assert.Equal(t, uint32(1), latestBlock.Header.Height)
 
-	assert.Equal(t, uint64(75), senderBalance)
-	assert.Equal(t, uint64(25), receiverBalance)
-
-	// Check that the sender's nonce was incremented.
-	senderAccount := bc.state.GetAccount(senderAddress)
-	assert.Equal(t, uint64(1), senderAccount.Nonce)
 }
-

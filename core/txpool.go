@@ -3,70 +3,58 @@ package core
 import (
 	"fmt"
 	"sync"
+
+	"github.com/Modulax-Protocol/go-modulax/crypto"
 )
 
-// TxPool holds all pending transactions that are waiting to be included in a block.
-// It provides a simple, thread-safe way to manage transactions.
 type TxPool struct {
-	mu           sync.RWMutex
-	transactions map[[32]byte]*Transaction
+	mu         sync.RWMutex
+	all        map[[32]byte]*Transaction
+	state      StateReader
+	maxPending int
 }
 
-// NewTxPool creates a new transaction pool.
-func NewTxPool() *TxPool {
+func NewTxPool(state StateReader) *TxPool {
 	return &TxPool{
-		transactions: make(map[[32]byte]*Transaction),
+		all:        make(map[[32]byte]*Transaction),
+		state:      state,
+		maxPending: 1024,
 	}
 }
-
-// Add adds a transaction to the pool.
 func (p *TxPool) Add(tx *Transaction) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	// Check if the transaction already exists in the pool.
-	if _, ok := p.transactions[tx.Hash]; ok {
-		return fmt.Errorf("transaction %x already in the pool", tx.Hash)
+	if len(p.all) >= p.maxPending {
+		return fmt.Errorf("transaction pool is full")
 	}
-
-	p.transactions[tx.Hash] = tx
+	if _, ok := p.all[tx.Hash]; ok {
+		return fmt.Errorf("transaction %x already in pool", tx.Hash)
+	}
+	if valid, err := tx.Verify(); err != nil || !valid {
+		return fmt.Errorf("invalid transaction signature")
+	}
+	senderAddr := crypto.AddressFromPublicKey(tx.PublicKey)
+	senderAccount := p.state.GetAccount(senderAddr)
+	if tx.Nonce != senderAccount.Nonce {
+		return fmt.Errorf("invalid nonce for tx %x. want %d, got %d", tx.Hash, senderAccount.Nonce, tx.Nonce)
+	}
+	if senderAccount.Balance < tx.Value {
+		return fmt.Errorf("insufficient funds for transfer")
+	}
+	p.all[tx.Hash] = tx
 	return nil
 }
-
-// Has returns true if the transaction exists in the pool.
-func (p *TxPool) Has(hash [32]byte) bool {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	_, ok := p.transactions[hash]
-	return ok
-}
-
-// Pending returns all transactions currently in the pool.
 func (p *TxPool) Pending() []*Transaction {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-
-	txs := make([]*Transaction, 0, len(p.transactions))
-	for _, tx := range p.transactions {
+	txs := make([]*Transaction, 0, len(p.all))
+	for _, tx := range p.all {
 		txs = append(txs, tx)
 	}
 	return txs
 }
-
-// Clear clears all transactions from the pool.
 func (p *TxPool) Clear() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	p.transactions = make(map[[32]byte]*Transaction)
+	p.all = make(map[[32]byte]*Transaction)
 }
-
-// Count returns the number of pending transactions.
-func (p *TxPool) Count() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	return len(p.transactions)
-}
-

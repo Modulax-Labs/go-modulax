@@ -37,6 +37,15 @@ func NewWallet() (*Wallet, error) {
 	}, nil
 }
 
+// WalletFromPrivateKey creates a Wallet from an existing private key.
+func WalletFromPrivateKey(privateKey *ecdsa.PrivateKey) *Wallet {
+	publicKey := append(privateKey.PublicKey.X.Bytes(), privateKey.PublicKey.Y.Bytes()...)
+	return &Wallet{
+		privateKey: privateKey,
+		publicKey:  publicKey,
+	}
+}
+
 // LoadWallet loads a wallet from a .wal file.
 func LoadWallet(address string) (*Wallet, error) {
 	fileName := fmt.Sprintf("%s/%s.wal", walletDir, address)
@@ -55,12 +64,7 @@ func LoadWallet(address string) (*Wallet, error) {
 	privateKey.PublicKey.Curve = elliptic.P256()
 	privateKey.PublicKey.X, privateKey.PublicKey.Y = privateKey.PublicKey.Curve.ScalarBaseMult(privateKeyBytes)
 
-	publicKey := append(privateKey.PublicKey.X.Bytes(), privateKey.PublicKey.Y.Bytes()...)
-
-	return &Wallet{
-		privateKey: privateKey,
-		publicKey:  publicKey,
-	}, nil
+	return WalletFromPrivateKey(privateKey), nil
 }
 
 // PublicKey returns the public key of the wallet.

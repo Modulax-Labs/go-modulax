@@ -31,7 +31,7 @@ func NewServer(db storage.Storer, bc *core.Blockchain, p2pNode *network.Node, ap
 		return nil, err
 	}
 
-	txPool := core.NewTxPool()
+	txPool := core.NewTxPool(bc.State())
 	miner := miner.NewMiner(bc, txPool, pubsub)
 
 	return &Server{
@@ -50,17 +50,24 @@ func (s *Server) Start(bootstrapNode string) error {
 	fmt.Println("Starting Modulax node...")
 	s.p2pNode.Start()
 
+	// Register the handlers for incoming network messages.
 	s.pubsub.RegisterBlockHandler(s.handleNewBlock)
 	s.pubsub.RegisterTxHandler(s.handleNewTransaction)
+
+	// Start the pub/sub service to begin listening on topics.
 	s.pubsub.Start()
+
+	// Start the automated block proposer.
 	s.miner.Start()
 
+	// If a bootstrap node is provided, connect to it.
 	if bootstrapNode != "" {
 		if err := s.p2pNode.Connect(context.Background(), bootstrapNode); err != nil {
 			fmt.Printf("Failed to connect to bootstrap node: %v\n", err)
 		}
 	}
 
+	// Start the JSON-RPC API server.
 	router := mux.NewRouter()
 	api := NewAPIServer(s.bc, s.pubsub, s.txPool)
 	router.HandleFunc("/rpc", api.handleRPC).Methods("POST")
@@ -84,26 +91,25 @@ func (s *Server) handleNewBlock(data []byte) {
 		fmt.Printf("[DEBUG] Error adding block: %v\n", err)
 		return
 	}
+	// When we sync a new block, we should clear our transaction pool.
 	s.txPool.Clear()
 	newLatestBlock, _ := s.bc.GetLatestBlock()
 	fmt.Printf("--- ✅ Successfully Synced Block! New Height: %d ---\n\n", newLatestBlock.Header.Height)
 }
 
-// handleNewTransaction is the callback function for when a new tx is received.
+//getThe 
+
+// handleNewTransaction is the callback for when a new tx is received.
 func (s *Server) handleNewTransaction(data []byte) {
 	tx, err := core.DecodeTransaction(data)
 	if err != nil {
 		fmt.Printf("Error decoding transaction: %v\n", err)
 		return
 	}
-	valid, err := tx.Verify()
-	if err != nil || !valid {
-		fmt.Printf("Received invalid transaction. Hash: %x\n", tx.Hash)
-		return
-	}
 	if err := s.txPool.Add(tx); err != nil {
+		// This is the primary validation point. An error here means the tx was invalid.
 		return
 	}
-	fmt.Printf("--- 📥 Received & Verified New Transaction! Hash: %x ---\n", tx.Hash)
+	fmt.Printf("--- 📥 Received & Validated New Transaction! Hash: %x ---\n", tx.Hash)
 }
 
