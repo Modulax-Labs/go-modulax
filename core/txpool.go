@@ -21,9 +21,11 @@ func NewTxPool(state StateReader) *TxPool {
 		maxPending: 1024,
 	}
 }
+
 func (p *TxPool) Add(tx *Transaction) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	if len(p.all) >= p.maxPending {
 		return fmt.Errorf("transaction pool is full")
 	}
@@ -44,6 +46,7 @@ func (p *TxPool) Add(tx *Transaction) error {
 	p.all[tx.Hash] = tx
 	return nil
 }
+
 func (p *TxPool) Pending() []*Transaction {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -53,6 +56,7 @@ func (p *TxPool) Pending() []*Transaction {
 	}
 	return txs
 }
+
 func (p *TxPool) Clear() {
 	p.mu.Lock()
 	defer p.mu.Unlock()

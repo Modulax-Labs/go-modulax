@@ -97,8 +97,6 @@ func (s *Server) handleNewBlock(data []byte) {
 	fmt.Printf("--- ✅ Successfully Synced Block! New Height: %d ---\n\n", newLatestBlock.Header.Height)
 }
 
-//getThe 
-
 // handleNewTransaction is the callback for when a new tx is received.
 func (s *Server) handleNewTransaction(data []byte) {
 	tx, err := core.DecodeTransaction(data)
@@ -112,4 +110,3 @@ func (s *Server) handleNewTransaction(data []byte) {
 	}
 	fmt.Printf("--- 📥 Received & Validated New Transaction! Hash: %x ---\n", tx.Hash)
 }
-

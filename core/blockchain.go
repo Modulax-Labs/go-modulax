@@ -13,6 +13,7 @@ import (
 )
 
 // Executor defines the interface for a state transition machine.
+// The EVM will implement this interface.
 type Executor interface {
 	Execute(tx *Transaction) error
 }
@@ -29,7 +30,7 @@ type Blockchain struct {
 	latestBlockHash [32]byte
 }
 
-// NewBlockchain now handles genesis state creation before initializing the EVM.
+// NewBlockchain now accepts the Executor as a parameter.
 func NewBlockchain(store storage.Storer, executor Executor) (*Blockchain, error) {
 	state, err := NewState(store)
 	if err != nil {
@@ -44,25 +45,17 @@ func NewBlockchain(store storage.Storer, executor Executor) (*Blockchain, error)
 	latestHashBytes, err := store.Get([]byte(lastBlockHashKey))
 	if err != nil {
 		genesis := createGenesisBlock()
-
-		// Manually apply the genesis transaction to the state. This is the only
-		// time we bypass the EVM for a state change.
-		genesisTx := genesis.Transactions[0]
-		if err := state.AddBalance(genesisTx.To, genesisTx.Value); err != nil {
+		// Manually process the genesis block to initialize the state.
+		if err := state.AddBalance(genesis.Transactions[0].To, genesis.Transactions[0].Value); err != nil {
 			return nil, fmt.Errorf("failed to apply genesis state: %w", err)
 		}
 		if err := state.Persist(); err != nil {
 			return nil, err
 		}
 
-		// Now, save the genesis block to the database.
 		genesisBytes, _ := genesis.Encode()
-		if err := store.Put(genesis.Hash[:], genesisBytes); err != nil {
-			return nil, err
-		}
-		if err := store.Put([]byte(lastBlockHashKey), genesis.Hash[:]); err != nil {
-			return nil, err
-		}
+		store.Put(genesis.Hash[:], genesisBytes)
+		store.Put([]byte(lastBlockHashKey), genesis.Hash[:])
 		bc.latestBlockHash = genesis.Hash
 	} else {
 		copy(bc.latestBlockHash[:], latestHashBytes)
@@ -116,12 +109,11 @@ func (bc *Blockchain) GetBlockByHash(hash [32]byte) (*Block, error) {
 // processBlock now only handles non-genesis blocks.
 func (bc *Blockchain) processBlock(block *Block) error {
 	if block.Header.Height == 0 {
-		// The genesis block's state has already been applied.
 		return nil
 	}
 	for _, tx := range block.Transactions {
 		if err := bc.executor.Execute(tx); err != nil {
-			return fmt.Errorf("execution failed for tx %x: %w", tx.Hash, err)
+			return fmt.Errorf("Execution failed for tx %x: %w", tx.Hash, err)
 		}
 	}
 	fmt.Printf("✅ Processed %d transactions in Block %d\n", len(block.Transactions), block.Header.Height)

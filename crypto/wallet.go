@@ -20,18 +20,18 @@ const (
 
 var (
 	HexToCipherMap = map[rune]string{
-		'0': "GG", '1': "GH", '2': "GJ", '3': "GK",
-		'4': "HG", '5': "HH", '6': "HJ", '7': "HK",
-		'8': "JG", '9': "JH",
-		'a': "JJ", 'b': "JK", 'c': "KG", 'd': "KH",
-		'e': "KJ", 'f': "KK",
+		'0': "Xz", '1': "Dl", '2': "Lm", '3': "Md",
+		'4': "Lz", '5': "Xm", '6': "Dz", '7': "Ml",
+		'8': "Xd", '9': "Lx",
+		'a': "Mz", 'b': "Dx", 'c': "Dm", 'd': "Ld",
+		'e': "Mx", 'f': "Xl",
 	}
 	CipherToHexMap = map[string]rune{
-		"GG": '0', "GH": '1', "GJ": '2', "GK": '3',
-		"HG": '4', "HH": '5', "HJ": '6', "HK": '7',
-		"JG": '8', "JH": '9',
-		"JJ": 'a', "JK": 'b', "KG": 'c', "KH": 'd',
-		"KJ": 'e', "KK": 'f',
+		"Xz": '0', "Dl": '1', "Lm": '2', "Md": '3',
+		"Lz": '4', "Xm": '5', "Dz": '6', "Ml": '7',
+		"Xd": '8', "Lx": '9',
+		"Mz": 'a', "Dx": 'b', "Dm": 'c', "Ld": 'd',
+		"Mx": 'e', "Xl": 'f',
 	}
 )
 
@@ -60,11 +60,11 @@ func WalletFromPrivateKey(privateKey *ecdsa.PrivateKey) *Wallet {
 	}
 }
 
-func LoadWallet(address string) (*Wallet, error) {
-	fileName := fmt.Sprintf("%s/%s.wal", walletDir, address)
+func LoadWallet(cipherAddress string) (*Wallet, error) {
+	fileName := fmt.Sprintf("%s/%s.wal", walletDir, cipherAddress)
 	privateKeyHex, err := os.ReadFile(fileName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read wallet file: %w", err)
+		return nil, fmt.Errorf("failed to read wallet file for address %s: %w", cipherAddress, err)
 	}
 	privateKeyBytes, err := hex.DecodeString(string(privateKeyHex))
 	if err != nil {
@@ -74,7 +74,11 @@ func LoadWallet(address string) (*Wallet, error) {
 	privateKey.D = new(big.Int).SetBytes(privateKeyBytes)
 	privateKey.PublicKey.Curve = elliptic.P256()
 	privateKey.PublicKey.X, privateKey.PublicKey.Y = privateKey.PublicKey.Curve.ScalarBaseMult(privateKeyBytes)
-	return WalletFromPrivateKey(privateKey), nil
+	loadedWallet := WalletFromPrivateKey(privateKey)
+	if loadedWallet.CipherAddress() != cipherAddress {
+		return nil, fmt.Errorf("wallet address mismatch, file may be corrupt or misnamed")
+	}
+	return loadedWallet, nil
 }
 
 func (w *Wallet) PublicKey() []byte {
@@ -91,6 +95,12 @@ func (w *Wallet) Address() [20]byte {
 	return address
 }
 
+func (w *Wallet) CipherAddress() string {
+	addressBytes := w.Address()
+	hexAddress := hex.EncodeToString(addressBytes[:])
+	return EncodeToCipher(hexAddress)
+}
+
 func (w *Wallet) Sign(dataHash [32]byte) ([]byte, error) {
 	r, s, err := ecdsa.Sign(rand.Reader, w.privateKey, dataHash[:])
 	if err != nil {
@@ -103,7 +113,8 @@ func (w *Wallet) SaveToFile() (string, error) {
 	if err := os.MkdirAll(walletDir, os.ModePerm); err != nil {
 		return "", err
 	}
-	fileName := fmt.Sprintf("%s/%x.wal", walletDir, w.Address())
+	cipherAddress := w.CipherAddress()
+	fileName := fmt.Sprintf("%s/%s.wal", walletDir, cipherAddress)
 	privateKeyBytes := w.privateKey.D.Bytes()
 	privateKeyHex := hex.EncodeToString(privateKeyBytes)
 	return fileName, os.WriteFile(fileName, []byte(privateKeyHex), 0644)

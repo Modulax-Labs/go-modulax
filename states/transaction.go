@@ -31,6 +31,7 @@ func (tx *Transaction) Verify() (bool, error) {
 	keyLen := len(tx.PublicKey)
 	x.SetBytes(tx.PublicKey[:(keyLen / 2)])
 	y.SetBytes(tx.PublicKey[(keyLen / 2):])
+
 	pubKey := &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
 	txHash, err := tx.CalculateHash()
 	if err != nil {
@@ -38,7 +39,6 @@ func (tx *Transaction) Verify() (bool, error) {
 	}
 	return ecdsa.Verify(pubKey, txHash[:], r, s), nil
 }
-
 func (tx *Transaction) CalculateHash() ([32]byte, error) {
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
@@ -56,7 +56,6 @@ func (tx *Transaction) CalculateHash() ([32]byte, error) {
 	}
 	return sha256.Sum256(buf.Bytes()), nil
 }
-
 func (tx *Transaction) Encode() ([]byte, error) {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(tx); err != nil {
@@ -64,7 +63,6 @@ func (tx *Transaction) Encode() ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
-
 func DecodeTransaction(data []byte) (*Transaction, error) {
 	var tx Transaction
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&tx); err != nil {
