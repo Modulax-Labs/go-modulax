@@ -8,11 +8,16 @@
 <strong>The future-proof ledger. EVM today. Quantum-resistant tomorrow.</strong>
 <br />
 <br />
-<a href="https://www.google.com/search?q=https://github.com/Modulax-Protocol/go-modulax/actions"><img src="https://www.google.com/search?q=https://img.shields.io/github/actions/workflow/status/Modulax-Protocol/go-modulax/go.yml%3Fbranch%3Dmain" alt="Build Status"></a>
-<a href="https://www.google.com/search?q=https://goreportcard.com/report/github.com/Modulax-Protocol/go-modulax"><img src="https://www.google.com/search?q=https://goreportcard.com/badge/github.com/Modulax-Protocol/go-modulax" alt="Go Report Card"></a>
-<a href="https://www.google.com/search?q=https://github.com/Modulax-Protocol/go-modulax/blob/main/LICENSE"><img src="https://www.google.com/search?q=https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-<a href="https://www.google.com/search?q=https://discord.gg/modulax"><img src="https://www.google.com/search?q=https://img.shields.io/discord/YOUR_DISCORD_SERVER_ID%3Fcolor%3D7289DA%26label%3DDiscord%26logo%3Ddiscord%26logoColor%3Dwhite" alt="Discord"></a>
 </p>
+
+<div align="center">
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/ethereum/go-ethereum)](https://goreportcard.com/report/github.com/ethereum/go-ethereum)
+[![Travis](https://app.travis-ci.com/ethereum/go-ethereum.svg?branch=master)](https://app.travis-ci.com/github/ethereum/go-ethereum)
+[![Twitter](https://img.shields.io/twitter/follow/ModulaxOrg)](https://x.com/ModulaxOrg)
+
+
+</div>
 
 📖 About Modulax Core
 Welcome to the heart of the Modulax network. This repository contains the official Golang implementation of the Modulax node software. It is a high-performance, open-source blockchain client designed from the ground up to address the impending threat of quantum computing while providing full EVM compatibility for developers today.
