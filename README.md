@@ -11,91 +11,63 @@
 </p>
 
 <div align="center">
-
+  
 [![Go Report Card](https://goreportcard.com/badge/github.com/ethereum/go-ethereum)](https://goreportcard.com/report/github.com/ethereum/go-ethereum)
 [![Travis](https://app.travis-ci.com/ethereum/go-ethereum.svg?branch=master)](https://app.travis-ci.com/github/ethereum/go-ethereum)
 [![Twitter](https://img.shields.io/twitter/follow/ModulaxOrg)](https://x.com/ModulaxOrg)
-
-
+  
 </div>
 
-📖 About Modulax Core
-Welcome to the heart of the Modulax network. This repository contains the official Golang implementation of the Modulax node software. It is a high-performance, open-source blockchain client designed from the ground up to address the impending threat of quantum computing while providing full EVM compatibility for developers today.
+---
 
-This is where the core logic lives: the consensus engine, the peer-to-peer networking, and our groundbreaking Post-Quantum EVM (PQ-EVM) implementation.
+## 📖 About Modulax Core
+Welcome to the heart of the **Modulax Network**.  
+This repository contains the official **Golang implementation** of the Modulax node software.  
 
-🚀 Key Features
-🛡️ Post-Quantum Security: Implements quantum-resistant signature schemes directly within the EVM, providing a future-proof foundation for all smart contracts.
+Modulax Core is a **high-performance, open-source blockchain client** designed from the ground up to:
+- Address the **impending threat of quantum computing**  
+- Provide **full EVM compatibility** for developers today  
 
-⚡ High-Performance PoS: A lightweight and efficient Proof-of-Stake consensus mechanism designed for fast transaction finality and low energy consumption.
+Here you’ll find the **consensus engine**, **peer-to-peer networking**, and our groundbreaking **Post-Quantum EVM (PQ-EVM)** implementation.
 
-🌐 EVM Compatibility: A fully compatible JSON-RPC API ensures that all existing Ethereum tools, libraries, and dApps work seamlessly with Modulax.
+---
 
-** modular Networking:** Built on libp2p for a robust and flexible peer-to-peer layer that is scalable and resilient.
+## 🚀 Key Features
 
-🛠 Tech Stack
-Primary Language: Go (Golang)
+- 🛡️ **Post-Quantum Security**  
+  Quantum-resistant signature schemes integrated directly into the EVM.  
 
-Networking: libp2p
+- ⚡ **High-Performance PoS**  
+  Lightweight Proof-of-Stake consensus with fast finality & low energy use.  
 
-Database: LevelDB
+- 🌐 **EVM Compatibility**  
+  Full JSON-RPC support, compatible with existing Ethereum tools & dApps.  
 
-CLI: Cobra
+- 🔗 **Modular Networking**  
+  Built on **libp2p** for scalability, robustness, and resilience.  
 
-🏁 Getting Started
-To get a local node running for development or testing, follow these steps.
+---
 
-Prerequisites
-Go (version 1.19 or later)
+## 🛠 Tech Stack
 
-A C compiler (like GCC for LevelDB)
+| Component      | Technology |
+|----------------|------------|
+| **Language**   | Go (Golang) |
+| **Networking** | libp2p |
+| **Database**   | LevelDB |
+| **CLI**        | Cobra |
 
-Installation & Running
-Clone the repository:
-`
+---
 
-git clone [https://github.com/Modulax-Protocol/go-modulax.git](https://github.com/Modulax-Protocol/go-modulax.git)
-`
+## 🏁 Getting Started
 
-Navigate to the project directory:
-`
+### Prerequisites
+- [Go](https://go.dev/dl/) **v1.19+**
+- C compiler (e.g. GCC) for LevelDB
 
+### Installation & Running
+
+Clone the repo:
+```bash
+git clone https://github.com/Modulax-Protocol/go-modulax.git
 cd go-modulax
-`
-
-Build the binary:
-`
-
-go build -o modulax ./cmd/modulax
-`
-
-Run your node:
-
-./modulax run
-
-🤝 How to Contribute
-Contributions are the lifeblood of any open-source project. We welcome developers, security researchers, and enthusiasts to help us build the future-proof ledger.
-
-Fork the repository.
-
-Create a new branch (git checkout -b feature/AmazingFeature).
-
-Commit your changes (git commit -m 'Add some AmazingFeature').
-
-Push to the branch (git push origin feature/AmazingFeature).
-
-Open a Pull Request.
-
-Please read our CONTRIBUTING.md for more details on our code of conduct and the process for submitting pull requests.
-
-🔗 Join Our Community
-Stay up to date with the latest developments and connect with the team.
-
-Website: modulax.org
-
-Twitter: @modulaxorg
-
-Discord: Join our Server
-
-📜 License
-Distributed under the MIT License. See LICENSE for more information.
